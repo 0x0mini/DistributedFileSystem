@@ -1,5 +1,5 @@
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 mod server;
@@ -14,6 +14,8 @@ enum AppError {
     ServerError(String),
     #[error("Client error: {0}")]
     ClientError(String),
+    #[error("File System error: {0}")]
+    FileSystemError(String),
     // Add more specific error types as needed.
 }
 
@@ -23,12 +25,12 @@ fn main() -> Result<(), AppError> {
     let server_address = env::var("SERVER_ADDRESS").map_err(|_| AppError::EnvVarError("SERVER_ADDRESS must be set".to_string()))?;
     let client_mode = env::var("CLIENT_MODE").unwrap_or_else(|_| "false".to_string());
 
-    let dfs = Arc::new(distributed_file_system::DistributedFileSystem::new());
+    let dfs = Arc::new(Mutex::new(distributed_file_system::DistributedFileSystem::new()));
 
     if client_mode == "true" {
-        client::start(dfs, &server_address)?;
+        client::start(dfs.clone(), &server_address)?;
     } else {
-        server::start(dfs, &server_address)?;
+        server::start(dfs.clone(), &server_address)?;
     }
 
     Ok(())
@@ -37,11 +39,18 @@ fn main() -> Result<(), AppError> {
 mod server {
     use super::distributed_file_system::DistributedFileSystem;
     use super::AppError;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
-    pub fn start(dfs: Arc<DistributedFileSystem>, address: &str) -> Result<(), AppError> {
+    pub fn start(dfs: Arc<Mutex<DistributedFileSystem>>, address: &str) -> Result<(), AppError> {
         println!("Starting server at {}", address);
-        // Simulate an error for demonstration purposes. In real scenarios, replace this with actual server handling logic.
+        {
+            let mut dfs = dfs.lock().unwrap();
+            dfs.add_file("example.txt".to_string(), "Hello, Distributed World!".to_string())?;
+        }
+        
+        let file_names = { dfs.lock().unwrap().list_file_names()? };
+        println!("Current files in the system: {:?}", file_names);
+        
         Err(AppError::ServerError("Failed to start the server".into()))
     }
 }
@@ -49,23 +58,45 @@ mod server {
 mod client {
     use super::distributed_file_system::DistributedFileSystem;
     use super::AppError;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
-    pub fn start(dfs: Arc<DistributedFileSystem>, server_address: &str) -> Result<(), AppError> {
+    pub fn start(dfs: Arc<Mutex<DistributedFileSystem>>, server_address: &str) -> Result<(), AppError> {
         println!("Connecting to server at {}", server_address);
-        // Simulate an error for demonstration purposes. In real scenarios, replace this with actual client handling logic.
+        {
+            let file_content = dfs.lock().unwrap().get_file_content("example.txt".into())?;
+            println!("Retrieved file content: {}", file_content);
+        }
+        
         Err(AppError::ClientError("Failed to connect to the server".into()))
     }
 }
 
 mod distributed_file_system {
+    use super::AppError;
+    use std::collections::HashMap;
+
     pub struct DistributedFileSystem {
+        files: HashMap<String, String>,
     }
 
     impl DistributedFileSystem {
         pub fn new() -> Self {
             DistributedFileSystem {
+                files: HashMap::new(),
             }
+        }
+
+        pub fn add_file(&mut self, file_name: String, content: String) -> Result<(), AppError> {
+            self.files.insert(file_name, content);
+            Ok(())
+        }
+
+        pub fn get_file_content(&self, file_name: String) -> Result<String, AppError> {
+            self.files.get(&file_name).cloned().ok_or(AppError::FileSystemError("File not found".into()))
+        }
+
+        pub fn list_file_names(&self) -> Result<Vec<String>, AppError> {
+            Ok(self.files.keys().cloned().collect())
         }
     }
 }
