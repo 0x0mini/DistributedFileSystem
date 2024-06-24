@@ -5,6 +5,7 @@ use thiserror::Error;
 mod server;
 mod client;
 mod distributed_file_system;
+mod logger;
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -16,7 +17,6 @@ enum AppError {
     ClientError(String),
     #[error("File System error: {0}")]
     FileSystemError(String),
-    // Add more specific error types as needed.
 }
 
 fn main() -> Result<(), AppError> {
@@ -38,18 +38,18 @@ fn main() -> Result<(), AppError> {
 
 mod server {
     use super::distributed_file_system::DistributedFileSystem;
-    use super::AppError;
+    use super::{AppError, logger::log};
     use std::sync::{Arc, Mutex};
 
     pub fn start(dfs: Arc<Mutex<DistributedFileSystem>>, address: &str) -> Result<(), AppError> {
-        println!("Starting server at {}", address);
+        log(format!("Starting server at {}", address));
         {
             let mut dfs = dfs.lock().unwrap();
             dfs.add_file("example.txt".to_string(), "Hello, Distributed World!".to_string())?;
         }
         
         let file_names = { dfs.lock().unwrap().list_file_names()? };
-        println!("Current files in the system: {:?}", file_names);
+        log(format!("Current files in the system: {:?}", file_names));
         
         Err(AppError::ServerError("Failed to start the server".into()))
     }
@@ -57,14 +57,14 @@ mod server {
 
 mod client {
     use super::distributed_file_system::DistributedFileSystem;
-    use super::AppError;
+    use super::{AppError, logger::log};
     use std::sync::{Arc, Mutex};
 
     pub fn start(dfs: Arc<Mutex<DistributedFileSystem>>, server_address: &str) -> Result<(), AppError> {
-        println!("Connecting to server at {}", server_address);
+        log(format!("Connecting to server at {}", server_address));
         {
             let file_content = dfs.lock().unwrap().get_file_content("example.txt".into())?;
-            println!("Retrieved file content: {}", file_content);
+            log(format!("Retrieved file content: {}", file_content));
         }
         
         Err(AppError::ClientError("Failed to connect to the server".into()))
@@ -98,5 +98,11 @@ mod distributed_file_system {
         pub fn list_file_names(&self) -> Result<Vec<String>, AppError> {
             Ok(self.files.keys().cloned().collect())
         }
+    }
+}
+
+mod logger {
+    pub fn log(message: String) {
+        println!("{}", message);
     }
 }
