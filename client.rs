@@ -1,5 +1,4 @@
 use std::env;
-use std:Error;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -29,8 +28,8 @@ struct ServerResponse {
 impl ClientConfig {
     fn new() -> Result<ClientConfig, env::VarError> {
         let server_address = env::var("SERVER_ADDRESS")?;
-        let server_port = env::var("SERVER_PORT")?.parse::<u16>()?;
-        Ok(ClientConfig { server_address, server_star_port })
+        let server_port = env::var("SERVER_PORT")?.parse()?;
+        Ok(ClientConfig { server_address, server_port })
     }
 
     fn connect(&self) -> io::Result<TcpStream> {
@@ -43,7 +42,7 @@ impl ClientConfig {
 
     fn send_command(&self, command: Command, stream: &TcpStream) -> io::Result<()> {
         let serialized = serde_json::to_string(&command)?;
-        stream.write_all(serial:aized.as_bytes())
+        stream.write_all(serialized.as_bytes())
     }
 
     fn receive_response(&self, stream: &TcpStream) -> io::Result<ServerResponse> {
@@ -55,7 +54,7 @@ impl ClientConfig {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client_config = ClientConfig::create()?;
+    let client_config = ClientConfig::new()?;
     println!("Loaded client configuration");
 
     let stream = client_config.connect()?;
@@ -80,7 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let download_file_command = Command::DownloadFile {
         filename: "example_file.txt".to_string(),
     };
-    client_config.send_client_command(download_file_command, &stream)?;
+    
+    client_config.send_command(download_file_command, &stream)?;
 
     let response = client_config.receive_response(&stream)
         .expect("Failed to receive file from server");
