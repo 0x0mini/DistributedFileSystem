@@ -3,6 +3,7 @@ use std::env;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use serde::{Deserialize, Serialize};
+use serde_json::Error as SerdeError;
 
 #[derive(Serialize, Deserialize, Debug)]
 enum MessageType {
@@ -19,7 +20,7 @@ struct Message {
 }
 
 struct NetworkTopology {
-    peers: HashMap<String, String>, 
+    peers: HashMap<String, String>,
 }
 
 impl NetworkTopology {
@@ -38,7 +39,7 @@ impl NetworkTopology {
     }
 }
 
-fn handle_client(mut stream: TcpStream) -> io::Result<()> {
+fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     let mut buffer = [0; 1024];
     let bytes_read = stream.read(&mut buffer)?;
 
@@ -46,7 +47,8 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
         return Ok(());
     }
 
-    let received_msg: Message = serde_json::from_slice(&buffer[..bytes_read]).unwrap();
+    let received_msg: Message = serde_json::from_slice(&buffer[..bytes_read])
+        .map_err(|e| format!("Failed to deserialize received message: {}", e))?;
 
     println!("Received: {:?}", received_msg);
 
@@ -65,27 +67,35 @@ fn handle_client(mut stream: TcpStream) -> io::Result<()> {
     Ok(())
 }
 
-fn connect_to_peer(peer_address: &str) -> io::Result<()> {
+fn connect_to_peer(peer_address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = TcpStream::connect(peer_address)?;
+
     let msg = Message {
         msg_type: MessageType::Hello,
         sender: env::var("PEER_ID").unwrap_or_else(|_| "Unknown".into()),
         content: "Hello there!".into(),
     };
 
-    let serialized_msg = serde_json::to_vec(&msg).unwrap();
+    let serialized_msg = serde_json::to_vec(&msg)
+        .map_err(|e| format!("Failed to serialize message: {}", e))?;
     stream.write_all(&serialized_msg)?;
 
     Ok(())
 }
 
-fn start_server() -> io::Result<()> {
-    let listener = TcpListener::bind(env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()))?;
+fn start_server() -> Result<(), Box<dyn std::error::Error>> {
+    let bind_address = env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into());
+    let listener = TcpListener::bind(&bind_address)
+        .map_err(|e| format!("Failed to bind to {}: {}", bind_address, e))?;
+
+    println!("Server listening on {}", bind_address);
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                handle_client(stream)?;
+                if let Err(e) = handle_client(stream) {
+                    println!("Error handling client: {}", e);
+                }
             }
             Err(e) => { println!("Failed to receive connection: {}", e); }
         }
