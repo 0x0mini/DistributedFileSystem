@@ -4,6 +4,7 @@ use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
+use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug)]
 enum MessageType {
@@ -39,7 +40,44 @@ impl NetworkTopology {
     }
 }
 
-fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Debug)]
+enum MyError {
+    Io(io::Error),
+    EnvVar(env::VarError),
+    Serde(SerdeError),
+    Custom(String),
+}
+
+impl fmt::Display for MyError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            MyError::Io(ref err) => write!(f, "IO error: {}", err),
+            MyError::EnvVar(ref err) => write!(f, "Environment variable error: {}", err),
+            MyError::Serde(ref err) => write!(f, "Serialization/Deserialization error: {}", err),
+            MyError::Custom(ref err) => write!(f, "Custom error: {}", err),
+        }
+    }
+}
+
+impl From<io::Error> for MyError {
+    fn from(error: io::Error) -> MyError {
+        MyError::Io(error)
+    }
+}
+
+impl From<SerdeError> for MyError {
+    fn from(error: SerdeError) -> MyError {
+        MyError::Serde(error)
+    }
+}
+
+impl From<env::VarError> for MyError {
+    fn from(error: env::VarError) -> MyError {
+        MyError::EnvVar(error)
+    }
+}
+
+fn handle_client(mut stream: TcpStream) -> Result<(), MyError> {
     let mut buffer = [0; 1024];
     let bytes_read = stream.read(&mut buffer)?;
 
@@ -48,7 +86,7 @@ fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>
     }
 
     let received_msg: Message = serde_json::from_slice(&buffer[..bytes_read])
-        .map_err(|e| format!("Failed to deserialize received message: {}", e))?;
+        .map_err(MyError::Serde)?;
 
     println!("Received: {:?}", received_msg);
 
@@ -67,26 +105,24 @@ fn handle_client(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-fn connect_to_peer(peer_address: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn connect_to_peer(peer_address: &str) -> Result<(), MyError> {
     let mut stream = TcpStream::connect(peer_address)?;
 
     let msg = Message {
         msg_type: MessageType::Hello,
-        sender: env::var("PEER_ID").unwrap_or_else(|_| "Unknown".into()),
+        sender: env::var("PEER_ID")?,
         content: "Hello there!".into(),
     };
 
-    let serialized_msg = serde_json::to_vec(&msg)
-        .map_err(|e| format!("Failed to serialize message: {}", e))?;
+    let serialized_msg = serde_json::to_vec(&msg)?;
     stream.write_all(&serialized_msg)?;
 
     Ok(())
 }
 
-fn start_server() -> Result<(), Box<dyn std::error::Error>> {
-    let bind_address = env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into());
-    let listener = TcpListener::bind(&bind_address)
-        .map_err(|e| format!("Failed to bind to {}: {}", bind_address, e))?;
+fn start_server() -> Result<(), MyError> {
+    let bind_address = env::var("LISTEN_ADDR")?;
+    let listener = TcpListener::bind(&bind_address)?;
 
     println!("Server listening on {}", bind_address);
 
