@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::sync::{Arc, Mutex};
 use serde::{Serialize, Deserialize};
 
@@ -14,35 +13,40 @@ struct DistributedFsState {
 }
 
 impl DistributedFsState {
-    fn new() -> DistributedFsState {
-        DistributedFsState {
+    fn new() -> Self {
+        Self {
             cluster_nodes: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    fn add_cluster_node(&self, node_id: &str, status: &str) {
+        let node = ClusterNode {
+            id: node_id.to_string(),
+            status: status.to_string(),
+        };
+        let mut cluster_nodes = self.cluster_nodes.lock().unwrap();
+        cluster_nodes.insert(node_id.to_string(), node);
+    }
+
+    fn remove_cluster_node(&self, node_id: &str) {
+        let mut cluster_nodes = self.cluster_nodes.lock().unwrap();
+        cluster_nodes.remove(node_id);
+    }
+
+    fn query_node_status(&self, node_id: &str) -> Option<String> {
+        let cluster_nodes = self.cluster_nodes.lock().unwrap();
+        cluster_nodes.get(node_id).map(|node| node.status.clone())
     }
 }
 
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    
+
     let distributed_fs_state = DistributedFsState::new();
-}
 
-fn add_cluster_node(distributed_fs_state: &DistributedFsState, node_id: &str, status: &str) {
-    let mut cluster_nodes = distributed_fs_state.cluster_nodes.lock().unwrap();
-    let node = ClusterNode {
-        id: node_id.to_string(),
-        status: status.to_string(),
-    };
-    cluster_nodes.insert(node_id.to_string(), node);
-}
-
-fn remove_cluster_node(distributed_fs_state: &DistributedFsState, node_id: &str) {
-    let mut cluster_nodes = distributed_fs_state.cluster_nodes.lock().unwrap();
-    cluster_nodes.remove(node_id);
-}
-
-fn query_node_status(distributed_fs_state: &DistributedFsState, node_id: &str) -> Option<String> {
-    let cluster_nodes = distributed_fs_state.cluster_nodes.lock().unwrap();
-    cluster_nodes.get(node_id).map(|node| node.status.clone())
+    distributed_fs_state.add_cluster_node("node1", "active");
+    distributed_fs_state.add_cluster_node("node2", "inactive");
+    println!("{:?}", distributed_fs_state.query_node_status("node1")); // Some("active")
+    distributed_fs_state.remove_cluster_node("node2");
 }
